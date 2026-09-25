@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Free-Time Chat Challenge</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9; /* slate-100 */
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* App Container mimicking mobile frame */
+        #app-container {
+            max-width: 480px;
+            margin: 0 auto;
+            height: 100vh;
+            height: 100dvh; /* for mobile browsers */
+            background-color: #ffffff;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        @media (min-width: 481px) {
+            #app-container {
+                height: 90vh;
+                margin-top: 5vh;
+                border-radius: 24px;
+            }
+        }
+
+        /* Hide scrollbar for clean app look */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        /* Animations */
+        .screen-enter {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .typing-dot {
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* Chat bubbles */
+        .chat-bubble-received {
+            border-bottom-left-radius: 4px;
+        }
+        .chat-bubble-sent {
+            border-bottom-right-radius: 4px;
+        }
+
+        .word-match-success { color: #16a34a; font-weight: 700; }
+        .word-match-fail { color: #ef4444; font-weight: 700; text-decoration: underline wavy; }
+        
+        .print-only { display: none; }
+        
+        @media print {
+            body { background: white; }
+            #app-container { box-shadow: none; max-width: 100%; height: auto; border-radius: 0; margin-top: 0; }
+            .no-print { display: none !important; }
+            .print-only { display: block; }
+            #screen-report { height: auto; overflow: visible; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        
+        <!-- Header / Progress (Hidden on Start/Report) -->
+        <header id="app-header" class="hidden bg-indigo-600 text-white p-4 shadow-md z-10 shrink-0">
+            <div class="flex justify-between items-center mb-2">
+                <h1 class="text-sm font-bold truncate">Free-Time Chat Challenge</h1>
+                <span id="mission-counter" class="text-xs font-semibold bg-indigo-800 px-2 py-1 rounded-full">Mission 1/4</span>
+            </div>
+            <div class="w-full bg-indigo-300 rounded-full h-1.5">
+                <div id="progress-bar" class="bg-emerald-400 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+        </header>
+
+        <!-- Dynamic Content Area -->
+        <main id="app-content" class="flex-1 overflow-y-auto no-scrollbar relative bg-slate-50 relative p-4 pb-24"></main>
+
+        <!-- Global Message/Toast Overlay -->
+        <div id="toast-container" class="absolute top-20 left-0 right-0 z-50 flex justify-center pointer-events-none opacity-0 transition-opacity duration-300">
+            <div id="toast-message" class="bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 mx-4">
+                <i id="toast-icon" class="fas fa-info-circle"></i>
+                <span id="toast-text" class="text-sm font-medium">Message</span>
+            </div>
+        </div>
+
+        <!-- Custom Modal -->
+        <div id="modal-overlay" class="absolute inset-0 bg-slate-900/50 z-50 hidden flex items-center justify-center backdrop-blur-sm p-4">
+            <div id="modal-content" class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 transform scale-95 transition-transform duration-200">
+                <!-- Modal content injected via JS -->
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="absolute bottom-0 w-full p-2 text-center text-xs text-slate-400 z-0 bg-slate-50 no-print">
+            Social Chat Simulation
+        </footer>
+
+    </div>
+
+    <script>
+        const TOTAL_MISSIONS = 4;
+        
+        const state = {
+            studentName: '',
+            currentMission: 0,
+            currentStep: 0,
+            scores: {
+                grammar: { points: 0, total: 0 },
+                accuracy: { points: 0, total: 0 }, // Replaces speaking clarity
+                communication: { points: 0, total: 0 }
+            },
+            surveyData: []
+        };
+
+        // DOM Elements
+        const DOM = {
+            content: document.getElementById('app-content'),
+            header: document.getElementById('app-header'),
+            progressBar: document.getElementById('progress-bar'),
+            missionCounter: document.getElementById('mission-counter'),
+            toast: document.getElementById('toast-container'),
+            toastText: document.getElementById('toast-text'),
+            toastIcon: document.getElementById('toast-icon'),
+            modalOverlay: document.getElementById('modal-overlay'),
+            modalContent: document.getElementById('modal-content')
+        };
+
+        const Lingua = {
+            clean(text) {
+                return text.toLowerCase().replace(/[.,?!'"]/g, '').trim().replace(/\s+/g, ' ');
+            },
+            
+            // Text accuracy checker (did they spell the target words right?)
+            calculateAccuracy(target, typed) {
+                const targetWords = this.clean(target).split(' ');
+                const typedWords = this.clean(typed).split(' ');
+                let matchCount = 0;
+                
+                targetWords.forEach(word => {
+                    if (typedWords.includes(word)) matchCount++;
+                });
+                
+                return Math.round((matchCount / targetWords.length) * 100);
+            },
+
+            // Specific grammar check for this lesson: like/love/enjoy/hate + V-ing
+            checkGerundGrammar(text) {
+                const t = this.clean(text);
+                const prefs = ['like', 'love', 'enjoy', 'hate'];
+                
+                // Common base verbs that students forget to add -ing to
+                const commonVerbs = [
+                    {base: 'play', gerund: 'playing'},
+                    {base: 'read', gerund: 'reading'},
+                    {base: 'dance', gerund: 'dancing'},
+                    {base: 'watch', gerund: 'watching'},
+                    {base: 'listen', gerund: 'listening'},
+                    {base: 'swim', gerund: 'swimming'},
+                    {base: 'cook', gerund: 'cooking'},
+                    {base: 'do', gerund: 'doing'},
+                    {base: 'clean', gerund: 'cleaning'},
+                    {base: 'go', gerund: 'going'}
+                ];
+
+                const hasPref = prefs.some(p => t.includes(p));
+                if (!hasPref && !t.includes("don't like")) {
+                    return { ok: false, type: 'missing_pref', msg: "I didn't see a preference word (like, love, enjoy, hate). Try again." };
+                }
+
+                for (let v of commonVerbs) {
+                    // Check for "like play", "enjoy to play"
+                    let prefRegex = new RegExp(`(${prefs.join('|')})\\s+(to\\s+)?${v.base}\\b`, 'i');
+                    if (prefRegex.test(t)) {
+                        return { 
+                            ok: false, 
+                            type: 'missing_gerund',
+                            msg: `Remember the rule! Use the <b>-ing</b> form after the preference word.`,
+                            suggestion: `Try: "... <b>${v.gerund}</b>"` 
+                        };
+                    }
+                }
+                
+                // Ensure a gerund is present if a preference word is there
+                const hasIng = /\w+ing\b/.test(t);
+                if (hasPref && !hasIng) {
+                    return {
+                        ok: false,
+                        type: 'no_ing',
+                        msg: "You used a preference word, but I don't see an activity ending in <b>-ing</b>.",
+                        suggestion: "Make sure your activity verb ends in -ing (e.g., play<b>ing</b>)."
+                    }
+                }
+
+                // Basic check passed
+                return { ok: true, msg: "Excellent grammar!" };
+            }
+        };
+
+        const UI = {
+            showToast(message, type = 'info') {
+                DOM.toastText.innerHTML = message;
+                DOM.toastIcon.className = type === 'success' ? 'fas fa-check-circle text-emerald-400' : 
+                                          type === 'error' ? 'fas fa-exclamation-triangle text-rose-400' : 
+                                          'fas fa-info-circle text-blue-400';
+                DOM.toast.classList.remove('opacity-0', 'pointer-events-none');
+                setTimeout(() => {
+                    DOM.toast.classList.add('opacity-0', 'pointer-events-none');
+                }, 3000);
+            },
+
+            showModal(contentHTML) {
+                DOM.modalContent.innerHTML = contentHTML;
+                DOM.modalOverlay.classList.remove('hidden');
+                setTimeout(() => DOM.modalContent.classList.remove('scale-95'), 10);
+            },
+
+            closeModal() {
+                DOM.modalContent.classList.add('scale-95');
+                setTimeout(() => {
+                    DOM.modalOverlay.classList.add('hidden');
+                    DOM.modalContent.innerHTML = '';
+                }, 200);
+            },
+
+            updateProgress(missionIndex) {
+                if(missionIndex === 0) {
+                    DOM.header.classList.add('hidden');
+                    return;
+                }
+                DOM.header.classList.remove('hidden');
+                DOM.missionCounter.textContent = `Mission ${missionIndex}/${TOTAL_MISSIONS}`;
+                const pct = ((missionIndex - 1) / TOTAL_MISSIONS) * 100;
+                DOM.progressBar.style.width = `${pct}%`;
+            },
+            
+            updateScore(category, points, maxPoints = 10) {
+                state.scores[category].points += points;
+                state.scores[category].total += maxPoints;
+            },
+            
+            getScorePercentage(category) {
+                const s = state.scores[category];
+                if (s.total === 0) return 100;
+                return Math.round((s.points / s.total) * 100);
+            },
+            
+            getTotalPercentage() {
+                let totalP = 0, totalT = 0;
+                for(let key in state.scores) {
+                    totalP += state.scores[key].points;
+                    totalT += state.scores[key].total;
+                }
+                // Add completion score (10 points for completing all missions)
+                totalP += state.currentMission >= TOTAL_MISSIONS ? 10 : 0;
+                totalT += 10;
+                return Math.round((totalP / totalT) * 100);
+            }
+        };
+
+        const Screens = {
+            
+            // ---------------- START SCREEN ----------------
+            renderWelcome() {
+                UI.updateProgress(0);
+                DOM.content.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-center p-6 screen-enter">
+                        <div class="bg-indigo-100 p-6 rounded-full mb-6 text-indigo-600 shadow-inner">
+                            <i class="fas fa-mobile-alt text-5xl"></i>
+                        </div>
+                        <h1 class="text-3xl font-extrabold text-slate-800 mb-2 leading-tight">FREE-TIME<br><span class="text-indigo-600">CHAT CHALLENGE</span></h1>
+                        <p class="text-slate-600 mb-8 font-medium">Can you survive 4 digital conversation missions?</p>
+                        
+                        <div class="bg-white p-6 rounded-2xl shadow-md w-full border border-slate-100 mb-8">
+                            <p class="text-sm text-slate-600 mb-4">Today you will read, write, and chat about the activities you <span class="font-bold text-slate-800">love, enjoy, like, and hate</span>.</p>
+                            <input type="text" id="student-name-input" placeholder="Type your first name" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4 text-center font-semibold text-lg">
+                        </div>
+                        
+                        <button onclick="app.startChallenge()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition-transform active:scale-95 text-lg flex items-center justify-center gap-2">
+                            START CHALLENGE <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                `;
+                
+                // Add enter key support for the name input
+                setTimeout(() => {
+                    const nameInput = document.getElementById('student-name-input');
+                    if (nameInput) {
+                        nameInput.addEventListener('keypress', function (e) {
+                            if (e.key === 'Enter') {
+                                app.startChallenge();
+                            }
+                        });
+                    }
+                }, 100);
+            },
+
+            // ---------------- GRAMMAR DETECTIVE ----------------
+            renderGrammarDetective() {
+                DOM.content.innerHTML = `
+                    <div class="screen-enter flex flex-col items-center justify-center h-full text-center p-4">
+                        <div class="bg-amber-100 p-4 rounded-full text-amber-600 mb-6">
+                            <i class="fas fa-lightbulb text-4xl"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-slate-800 mb-2">Before We Chat...</h2>
+                        <p class="text-slate-600 mb-8">Remember the pattern for talking about free time online!</p>
+                        
+                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 w-full mb-8 text-left">
+                            <p class="font-mono text-lg mb-2">I LOVE danc<span class="text-indigo-600 font-bold bg-indigo-100 px-1 rounded">ing</span>.</p>
+                            <p class="font-mono text-lg mb-2">I HATE wait<span class="text-indigo-600 font-bold bg-indigo-100 px-1 rounded">ing</span>.</p>
+                            <p class="font-mono text-lg mb-4">I ENJOY read<span class="text-indigo-600 font-bold bg-indigo-100 px-1 rounded">ing</span>.</p>
+                            
+                            <p class="font-bold text-slate-700 mt-6 mb-3 text-center border-t pt-4">THE CHAT CODE:</p>
+                            <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-100 text-center font-bold text-indigo-800 shadow-inner">
+                                like / love / enjoy / hate + VERB-ING
+                            </div>
+                        </div>
+                        
+                        <button onclick="app.renderMission1()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-md transition-transform active:scale-95">
+                            Got it! Start Mission 1
+                        </button>
+                    </div>
+                `;
+            },
+
+            // ---------------- MISSION 1: SOCIAL FEED ----------------
+            renderMission1() {
+                state.currentMission = 1;
+                UI.updateProgress(1);
+                
+                const posts = [
+                    { author: 'Sarah', icon: '⚽', imgColor: 'bg-emerald-400', content: 'Beautiful day for a match! ☀️', instruction: 'Tell Sarah you LOVE playing soccer.', keyword: 'love' },
+                    { author: 'David', icon: '📚', imgColor: 'bg-blue-400', content: 'Finally finished this novel.', instruction: 'Tell David you ENJOY reading.', keyword: 'enjoy' },
+                    { author: 'Emma', icon: '🧹', imgColor: 'bg-rose-400', content: 'Sunday chores... ugh.', instruction: 'Tell Emma you HATE cleaning.', keyword: 'hate' }
+                ];
+                
+                let pIndex = state.currentStep || 0;
+                if (pIndex >= posts.length) {
+                    state.currentStep = 0;
+                    this.renderMission2();
+                    return;
+                }
+                
+                const post = posts[pIndex];
+
+                DOM.content.innerHTML = `
+                    <div class="screen-enter flex flex-col h-full">
+                        <div class="mb-4">
+                            <h2 class="text-xl font-bold text-slate-800"><i class="fas fa-hashtag text-indigo-500 mr-2"></i>Mission 1: Social Feed</h2>
+                            <p class="text-sm text-slate-500 mt-1">Leave a comment using the correct grammar.</p>
+                        </div>
+                        
+                        <div class="flex-1 flex flex-col gap-4">
+                            <!-- Social Post Card -->
+                            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                                <div class="p-4 flex items-center gap-3 border-b border-slate-50">
+                                    <div class="w-10 h-10 rounded-full ${post.imgColor} flex items-center justify-center text-white font-bold text-lg">
+                                        ${post.author[0]}
+                                    </div>
+                                    <div>
+                                        <h3 class="font-bold text-slate-800 leading-tight">${post.author}</h3>
+                                        <p class="text-xs text-slate-400">2 hours ago</p>
+                                    </div>
+                                </div>
+                                <div class="p-6 bg-slate-50 flex flex-col items-center justify-center text-center">
+                                    <div class="text-6xl mb-4 drop-shadow-sm">${post.icon}</div>
+                                    <p class="text-slate-700 font-medium">${post.content}</p>
+                                </div>
+                                <div class="p-3 border-t border-slate-100 flex gap-4 text-slate-400 text-sm font-medium">
+                                    <span><i class="far fa-heart"></i> 24</span>
+                                    <span><i class="far fa-comment"></i> Comment</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Comment Input Area -->
+                            <div class="bg-indigo-50 rounded-2xl border border-indigo-100 p-4 mt-auto">
+                                <p class="text-sm font-bold text-indigo-800 mb-3"><i class="fas fa-pen-nib mr-1"></i> Task: ${post.instruction}</p>
+                                <div class="flex gap-2">
+                                    <input type="text" id="m1-input" placeholder="Type your comment..." class="flex-1 border-slate-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm text-sm">
+                                    <button id="m1-submit" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 flex items-center justify-center transition-colors shadow-sm">
+                                        <i class="fas fa-paper-plane"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-center text-xs text-slate-400">Post ${pIndex + 1} of ${posts.length}</div>
+                    </div>
+                `;
+
+                const input = document.getElementById('m1-input');
+                const submitBtn = document.getElementById('m1-submit');
+
+                const handleComment = () => {
+                    const text = input.value.trim();
+                    if(!text) return;
+                    
+                    const analysis = Lingua.checkGerundGrammar(text);
+                    
+                    // Specific check to ensure they used the requested keyword
+                    if (!text.toLowerCase().includes(post.keyword)) {
+                        UI.showToast(`Make sure to use the word '${post.keyword.toUpperCase()}'.`, 'error');
+                        return;
+                    }
+
+                    if (analysis.ok) {
+                        UI.showToast("Great comment! Grammar is correct.", "success");
+                        UI.updateScore('grammar', 10, 10);
+                        UI.updateScore('accuracy', 10, 10);
+                        state.currentStep++;
+                        setTimeout(() => this.renderMission1(), 1200);
+                    } else {
+                        UI.showModal(`
+                            <div class="text-center p-2">
+                                <div class="text-amber-500 text-4xl mb-3"><i class="fas fa-exclamation-circle"></i></div>
+                                <h3 class="text-lg font-bold text-slate-800 mb-2">Grammar Check</h3>
+                                <p class="text-slate-600 mb-4">${analysis.msg}</p>
+                                ${analysis.suggestion ? `<p class="bg-slate-50 border border-slate-200 p-3 rounded-lg text-slate-800 font-medium mb-4">${analysis.suggestion}</p>` : ''}
+                                <button onclick="UI.closeModal()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl">Edit Comment</button>
+                            </div>
+                        `);
+                    }
+                };
+
+                submitBtn.onclick = handleComment;
+                input.onkeypress = (e) => { if(e.key === 'Enter') handleComment(); };
+                
+                // Auto focus input
+                setTimeout(() => input.focus(), 300);
+            },
+
+            // ---------------- MISSION 2: TEXT FIXER ----------------
+            renderMission2() {
+                state.currentMission = 2;
+                UI.updateProgress(2);
+                
+                const textsToFix = [
+                    { bad: "I enjoy to listen to music.", target: "I enjoy listening to music." },
+                    { bad: "Do you like play video games?", target: "Do you like playing video games?" },
+                    { bad: "I hate wait in line.", target: "I hate waiting in line." }
+                ];
+
+                let tIndex = state.currentStep || 0;
+                if (tIndex >= textsToFix.length) {
+                    state.currentStep = 0;
+                    this.renderMission3();
+                    return;
+                }
+                
+                const item = textsToFix[tIndex];
+
+                DOM.content.innerHTML = `
+                    <div class="screen-enter flex flex-col h-full">
+                        <div class="mb-4">
+                            <h2 class="text-xl font-bold text-slate-800"><i class="fas fa-wrench text-indigo-500 mr-2"></i>Mission 2: Text Fixer</h2>
+                            <p class="text-sm text-slate-500 mt-1">Help your friend fix their grammar before they send.</p>
+                        </div>
+                        
+                        <div class="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col">
+                            
+                            <div class="bg-rose-50 border border-rose-200 rounded-xl p-6 text-center relative mb-8 mt-4">
+                                <span class="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-rose-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-sm">Draft Message</span>
+                                <p class="text-xl font-medium text-rose-800 mt-2 line-through decoration-rose-400 decoration-2">"${item.bad}"</p>
+                            </div>
+
+                            <div class="flex-1 flex flex-col">
+                                <p class="text-sm font-bold text-slate-700 mb-3">Rewrite the message correctly:</p>
+                                
+                                <textarea id="m2-input" rows="3" class="w-full border border-slate-300 rounded-xl p-4 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none resize-none mb-4 shadow-inner" placeholder="Type the correct version here..."></textarea>
+                                
+                                <div id="m2-feedback-box" class="hidden p-4 rounded-xl mb-4 text-sm font-medium border"></div>
+                                
+                                <div class="mt-auto flex gap-2">
+                                    <button id="m2-submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-md transition-colors">Check Grammar</button>
+                                    <button id="m2-next" class="hidden flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold shadow-md transition-colors">Next <i class="fas fa-arrow-right ml-1"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-center text-xs text-slate-400">Message ${tIndex + 1} of ${textsToFix.length}</div>
+                    </div>
+                `;
+
+                const input = document.getElementById('m2-input');
+                const submitBtn = document.getElementById('m2-submit');
+                const nextBtn = document.getElementById('m2-next');
+                const feedbackBox = document.getElementById('m2-feedback-box');
+                
+                // Pre-fill to save time, user just changes the verb
+                input.value = item.bad;
+
+                const checkFix = () => {
+                    const text = input.value.trim();
+                    const analysis = Lingua.checkGerundGrammar(text);
+                    const accuracyScore = Lingua.calculateAccuracy(item.target, text);
+                    
+                    feedbackBox.classList.remove('hidden', 'bg-emerald-50', 'text-emerald-700', 'border-emerald-200', 'bg-amber-50', 'text-amber-700', 'border-amber-200');
+                    
+                    if (analysis.ok && accuracyScore >= 90) {
+                        feedbackBox.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
+                        feedbackBox.innerHTML = '<i class="fas fa-check-circle mr-1"></i> Perfect! The grammar is correct.';
+                        submitBtn.classList.add('hidden');
+                        nextBtn.classList.remove('hidden');
+                        UI.updateScore('grammar', 10, 10);
+                        UI.updateScore('accuracy', 10, 10);
+                    } else if (analysis.ok) {
+                        feedbackBox.classList.add('bg-amber-50', 'text-amber-700', 'border-amber-200');
+                        feedbackBox.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i> Grammar is okay, but it doesn\'t match the original meaning closely enough. Try again.';
+                    } else {
+                        feedbackBox.classList.add('bg-rose-50', 'text-rose-700', 'border-rose-200');
+                        feedbackBox.innerHTML = `<i class="fas fa-times-circle mr-1"></i> ${analysis.msg}`;
+                    }
+                };
+
+                submitBtn.onclick = checkFix;
+                
+                nextBtn.onclick = () => {
+                    state.currentStep++;
+                    this.renderMission2();
+                };
+            },
+
+            // ---------------- MISSION 3: WHATSAPP SIMULATION ----------------
+            renderMission3() {
+                state.currentMission = 3;
+                UI.updateProgress(3);
+                
+                // Initialize chat state if new
+                if(!state.chatData) {
+                    state.chatData = {
+                        step: 0,
+                        messages: [
+                            { sender: 'alex', text: `Hi ${state.studentName}! I'm doing a survey. What do you like doing after class?` }
+                        ]
+                    };
+                }
+
+                DOM.content.innerHTML = `
+                    <div class="screen-enter flex flex-col h-full bg-[#efeae2]">
+                        <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/always-grey.png')] opacity-20 pointer-events-none"></div>
+                        
+                        <!-- Chat Header -->
+                        <div class="bg-[#075e54] text-white p-3 flex items-center shadow-md -mx-4 -mt-4 mb-2 shrink-0 relative z-10">
+                            <div class="w-10 h-10 bg-slate-300 rounded-full flex items-center justify-center overflow-hidden mr-3 relative">
+                                <img src="https://ui-avatars.com/api/?name=Alex&background=random&color=fff" alt="Alex" class="w-full h-full object-cover">
+                                <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-400 border-2 border-[#075e54] rounded-full"></div>
+                            </div>
+                            <div>
+                                <h2 class="font-semibold leading-tight">Alex</h2>
+                                <p class="text-xs text-green-100">Online</p>
+                            </div>
+                        </div>
+
+                        <!-- Chat Messages Area -->
+                        <div id="chat-messages" class="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-2 p-2 relative z-10">
+                            <!-- Messages injected here -->
+                        </div>
+
+                        <!-- Input Area -->
+                        <div class="bg-[#f0f0f0] p-2 -mx-4 -mb-24 mt-2 flex items-end gap-2 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] shrink-0 relative z-10">
+                            <div class="flex-1 bg-white rounded-2xl flex items-center shadow-sm border border-slate-200 px-3 py-2">
+                                <input type="text" id="chat-input" placeholder="Type a message..." class="flex-1 outline-none text-[15px] bg-transparent py-1">
+                            </div>
+                            <button id="chat-send-btn" class="w-11 h-11 rounded-full bg-[#128c7e] text-white flex items-center justify-center shadow-sm transition-transform active:scale-90 hover:bg-[#075e54]">
+                                <i class="fas fa-paper-plane text-sm ml-[-2px]"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                this.renderChatMessages();
+
+                const input = document.getElementById('chat-input');
+                const sendBtn = document.getElementById('chat-send-btn');
+
+                const handleSend = () => {
+                    const text = input.value.trim();
+                    if (!text) return;
+                    
+                    // 1. Analyze Grammar before sending
+                    const analysis = this.analyzeChatInput(text, state.chatData.step);
+                    
+                    if (!analysis.ok) {
+                        this.showChatCoachingModal(text, analysis);
+                        return; // Block sending
+                    }
+
+                    // 2. Grammar OK, proceed
+                    UI.updateScore('grammar', 10, 10);
+                    UI.updateScore('communication', 10, 10);
+                    input.value = '';
+                    
+                    // Add user message
+                    state.chatData.messages.push({ sender: 'user', text: text });
+                    this.renderChatMessages();
+                    this.scrollToBottom();
+                    
+                    // Process next step logic
+                    this.processBotReply(text);
+                };
+
+                sendBtn.onclick = handleSend;
+                input.onkeypress = (e) => { if(e.key === 'Enter') handleSend(); };
+                
+                // Delay focus slightly so transition finishes
+                setTimeout(() => input.focus(), 400);
+            },
+            
+            // Chat Helpers
+            renderChatMessages() {
+                const container = document.getElementById('chat-messages');
+                if(!container) return;
+                
+                let html = '';
+                state.chatData.messages.forEach(msg => {
+                    if (msg.sender === 'alex') {
+                        html += `
+                            <div class="self-start max-w-[85%] mb-2 animate-[slideIn_0.2s_ease-out]">
+                                <div class="bg-white text-slate-800 p-3 rounded-2xl chat-bubble-received shadow-sm text-[15px] leading-snug border border-slate-100">
+                                    ${msg.text}
+                                </div>
+                            </div>
+                        `;
+                    } else if (msg.sender === 'user') {
+                        html += `
+                            <div class="self-end max-w-[85%] mb-2 animate-[slideIn_0.2s_ease-out]">
+                                <div class="bg-[#dcf8c6] text-slate-800 p-3 rounded-2xl chat-bubble-sent shadow-sm text-[15px] leading-snug border border-[#c4ebb0]">
+                                    ${msg.text}
+                                </div>
+                            </div>
+                        `;
+                    } else if (msg.sender === 'typing') {
+                         html += `
+                            <div id="typing-indicator" class="self-start max-w-[85%] mb-2">
+                                <div class="bg-white p-4 rounded-2xl chat-bubble-received shadow-sm flex gap-1 items-center h-10 w-16 justify-center">
+                                    <div class="w-1.5 h-1.5 bg-slate-400 rounded-full typing-dot"></div>
+                                    <div class="w-1.5 h-1.5 bg-slate-400 rounded-full typing-dot"></div>
+                                    <div class="w-1.5 h-1.5 bg-slate-400 rounded-full typing-dot"></div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                container.innerHTML = html;
+                this.scrollToBottom();
+            },
+
+            scrollToBottom() {
+                const container = document.getElementById('chat-messages');
+                if(container) setTimeout(() => container.scrollTop = container.scrollHeight, 50);
+            },
+
+            analyzeChatInput(text, step) {
+                // Rule set based on current chat step
+                const check = Lingua.checkGerundGrammar(text);
+                
+                if (step === 0 || step === 1 || step === 2) {
+                     return check; // Standard pref + gerund check
+                } 
+                else if (step === 3) {
+                    // Expecting a question: "Do you like/enjoy...?"
+                    const t = text.toLowerCase();
+                    if (!t.includes("do you") || !(t.includes("like") || t.includes("enjoy") || t.includes("love") || t.includes("hate"))) {
+                        return { ok: false, msg: "Start your question with 'Do you like...' or 'Do you enjoy...'"};
+                    }
+                    return check; // Also verify gerund used in question
+                }
+                return { ok: true };
+            },
+
+            showChatCoachingModal(originalText, analysis) {
+                let fixHtml = '';
+                if (analysis.suggestion) {
+                    fixHtml = `<p class="mt-3 text-sm text-slate-700 bg-white p-2 rounded border border-rose-100"><b>Hint:</b> ${analysis.suggestion}</p>`;
+                }
+
+                UI.showModal(`
+                    <div class="text-center">
+                        <div class="w-12 h-12 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4 text-xl">
+                            <i class="fas fa-chalkboard-teacher"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-800 mb-2">Language Coach</h3>
+                        <div class="bg-rose-50 text-rose-800 p-3 rounded-lg text-sm mb-4 border border-rose-100 text-left">
+                            <p>${analysis.msg}</p>
+                            ${fixHtml}
+                        </div>
+                        <div class="bg-slate-50 p-3 rounded-lg mb-6 border border-slate-200">
+                            <p class="text-xs text-slate-500 uppercase tracking-wide mb-1 font-semibold text-left">You wrote:</p>
+                            <p class="text-sm text-slate-700 italic text-left">"${originalText}"</p>
+                        </div>
+                        <button onclick="UI.closeModal()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors">
+                            Edit My Message
+                        </button>
+                    </div>
+                `);
+                UI.updateScore('grammar', -2, 0); // Slight penalty for needing correction, but max points still possible
+            },
+
+            processBotReply(userText) {
+                const step = state.chatData.step;
+                
+                // Show typing indicator
+                state.chatData.messages.push({ sender: 'typing' });
+                this.renderChatMessages();
+
+                setTimeout(() => {
+                    // Remove typing indicator
+                    state.chatData.messages.pop(); 
+                    
+                    let replyText = "";
+                    
+                    if (step === 0) {
+                        replyText = "Cool! Is there any activity you hate doing?";
+                        state.chatData.step++;
+                    } else if (step === 1) {
+                        replyText = "I see! Do you enjoy watching movies?";
+                        state.chatData.step++;
+                    } else if (step === 2) {
+                        replyText = "Thanks for answering. Now, can YOU ask me one question about my free time?";
+                        state.chatData.step++;
+                    } else if (step === 3) {
+                        replyText = "Yes, I do! Thanks for chatting. Good luck with the rest of your mission!";
+                        state.chatData.step++;
+                        state.chatData.messages.push({ sender: 'alex', text: replyText });
+                        this.renderChatMessages();
+                        
+                        // End mission
+                        setTimeout(() => {
+                            UI.showModal(`
+                                <div class="text-center">
+                                    <div class="w-16 h-16 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+                                        <i class="fas fa-check"></i>
+                                    </div>
+                                    <h3 class="text-xl font-bold text-slate-800 mb-2">Chat Complete!</h3>
+                                    <p class="text-slate-600 mb-6">Great job answering and asking questions.</p>
+                                    <button onclick="UI.closeModal(); app.renderMission4()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors">
+                                        Start Final Mission
+                                    </button>
+                                </div>
+                            `);
+                        }, 1500);
+                        return; // stop here
+                    }
+
+                    state.chatData.messages.push({ sender: 'alex', text: replyText });
+                    this.renderChatMessages();
+                }, 1500); // Simulate typing delay
+            },
+
+            // ---------------- MISSION 4: GROUP CHAT Q&A ----------------
+            renderMission4() {
+                state.currentMission = 4;
+                UI.updateProgress(4);
+                
+                const questions = [
+                    { author: 'ClassBot', color: 'bg-blue-500', text: `Hi @${state.studentName}! What do you love doing in your free time?` },
+                    { author: 'ClassBot', color: 'bg-blue-500', text: "What do you enjoy doing with friends?" },
+                    { author: 'ClassBot', color: 'bg-blue-500', text: "Now, ask the group a question about our free time!" }
+                ];
+
+                let qIndex = state.currentStep || 0;
+                
+                if (qIndex >= questions.length) {
+                    state.currentStep = 0;
+                    this.renderReport();
+                    return;
+                }
+
+                const q = questions[qIndex];
+                const isUserAsking = qIndex === 2;
+
+                DOM.content.innerHTML = `
+                    <div class="screen-enter flex flex-col h-full">
+                        <div class="mb-4">
+                            <h2 class="text-xl font-bold text-slate-800"><i class="fas fa-users text-indigo-500 mr-2"></i>Final Mission</h2>
+                            <p class="text-sm text-slate-500 mt-1">Group Chat Q&A.</p>
+                        </div>
+                        
+                        <div class="flex-1 bg-slate-900 rounded-3xl shadow-xl overflow-hidden relative flex flex-col mb-4 border border-slate-800">
+                            
+                            <!-- Group Chat Area -->
+                            <div class="flex-1 bg-slate-800 flex flex-col p-4 overflow-y-auto">
+                                <div class="text-center text-xs text-slate-500 mb-4 font-medium uppercase tracking-wider">Class Group</div>
+                                
+                                <div class="flex gap-3 mb-4 items-end animate-[slideIn_0.3s_ease-out]">
+                                    <div class="w-8 h-8 rounded-full ${q.color} flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-md">
+                                        CB
+                                    </div>
+                                    <div class="bg-slate-700 text-slate-100 p-3 rounded-2xl rounded-bl-sm shadow-sm text-sm border border-slate-600">
+                                        <p class="text-xs text-blue-300 font-bold mb-1">${q.author}</p>
+                                        ${q.text}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- User Controls Area -->
+                            <div class="bg-slate-950 p-4 flex flex-col relative border-t border-slate-800">
+                                <div class="flex gap-2">
+                                     <input type="text" id="m4-input" placeholder="Type your reply to the group..." class="flex-1 bg-slate-800 text-white border border-slate-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 outline-none text-sm shadow-inner">
+                                     <button id="m4-submit" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 rounded-xl font-bold shadow-md transition-colors">Send</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const input = document.getElementById('m4-input');
+                const submitBtn = document.getElementById('m4-submit');
+                
+                setTimeout(() => input.focus(), 400);
+
+                const processAnswer = () => {
+                    const text = input.value.trim();
+                    if (!text) return;
+
+                    let analysis = isUserAsking ? 
+                        Lingua.checkGerundGrammar("do you " + text) : // hack to force checking question structure
+                        Lingua.checkGerundGrammar(text);
+
+                    // For the final chat, just ensure communication happens with the gerund
+                    if (text.length > 5 && analysis.ok) {
+                        UI.updateScore('communication', 10, 10);
+                        UI.updateScore('grammar', 10, 10);
+                        
+                        // Show message appearing
+                        const chatArea = document.querySelector('.bg-slate-800.flex-1');
+                        chatArea.innerHTML += `
+                            <div class="flex gap-3 mb-4 items-end justify-end animate-[slideIn_0.3s_ease-out]">
+                                <div class="bg-indigo-600 text-white p-3 rounded-2xl rounded-br-sm shadow-sm text-sm border border-indigo-500">
+                                    ${text}
+                                </div>
+                            </div>
+                        `;
+                        chatArea.scrollTop = chatArea.scrollHeight;
+                        input.value = '';
+                        input.disabled = true;
+
+                        setTimeout(() => {
+                            state.currentStep++;
+                            this.renderMission4();
+                        }, 1200);
+                    } else if (!analysis.ok) {
+                         UI.showToast(analysis.msg, "error");
+                    } else {
+                        UI.showToast("Please provide a longer, complete sentence.", "error");
+                    }
+                };
+
+                submitBtn.onclick = processAnswer;
+                input.onkeypress = (e) => { if(e.key === 'Enter') processAnswer(); };
+            },
+
+            // ---------------- FINAL REPORT ----------------
+            renderReport() {
+                DOM.header.classList.add('hidden'); // Hide progress bar
+                const totalScore = UI.getTotalPercentage();
+                
+                let rank = "Practice Explorer";
+                let rankColor = "text-slate-600";
+                let icon = "fa-compass";
+                
+                if(totalScore >= 90) { rank = "Communication Star"; rankColor = "text-yellow-500"; icon = "fa-star"; }
+                else if (totalScore >= 80) { rank = "Strong Communicator"; rankColor = "text-emerald-500"; icon = "fa-award"; }
+                else if (totalScore >= 70) { rank = "Growing Communicator"; rankColor = "text-blue-500"; icon = "fa-seedling"; }
+
+                const gScore = UI.getScorePercentage('grammar');
+                const aScore = UI.getScorePercentage('accuracy');
+                const commScore = UI.getScorePercentage('communication');
+
+                DOM.content.innerHTML = `
+                    <div id="screen-report" class="screen-enter p-2">
+                        <div class="bg-indigo-600 text-white p-6 rounded-2xl shadow-lg mb-6 relative overflow-hidden">
+                            <div class="absolute top-[-20px] right-[-20px] text-indigo-400 opacity-20 text-9xl"><i class="fas fa-trophy"></i></div>
+                            <h2 class="text-sm font-bold uppercase tracking-wider mb-1 opacity-80">Final Report</h2>
+                            <h1 class="text-3xl font-extrabold mb-2">${state.studentName}</h1>
+                            <div class="flex items-center gap-2 mt-4 bg-white/20 w-max px-3 py-1.5 rounded-full backdrop-blur-sm">
+                                <i class="fas ${icon} ${rankColor} bg-white rounded-full p-1 text-xs"></i>
+                                <span class="font-bold text-sm shadow-sm">${rank}</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 mb-6">
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+                                <span class="text-xs text-slate-400 uppercase font-bold tracking-wide mb-1">Grammar</span>
+                                <span class="text-2xl font-black text-slate-800">${gScore}%</span>
+                            </div>
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center">
+                                <span class="text-xs text-slate-400 uppercase font-bold tracking-wide mb-1">Accuracy</span>
+                                <span class="text-2xl font-black text-slate-800">${aScore}%</span>
+                            </div>
+                            <div class="col-span-2 bg-gradient-to-r from-emerald-400 to-teal-500 text-white p-4 rounded-xl shadow-md flex items-center justify-between">
+                                <div>
+                                    <span class="text-xs uppercase font-bold tracking-wide block mb-1 opacity-90">Overall Score</span>
+                                    <span class="text-3xl font-black block leading-none">${totalScore}%</span>
+                                </div>
+                                <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl backdrop-blur-sm"><i class="fas fa-chart-line"></i></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 mb-6 text-sm print:break-inside-avoid">
+                            <h3 class="font-bold text-slate-800 mb-3 border-b pb-2"><i class="fas fa-magic text-indigo-500 mr-2"></i>What you did well</h3>
+                            <ul class="text-slate-600 space-y-2 mb-4">
+                                <li><i class="fas fa-check text-emerald-500 mr-2"></i> Completed all 4 chat missions.</li>
+                                ${gScore > 70 ? '<li><i class="fas fa-check text-emerald-500 mr-2"></i> Used like/love + -ing well.</li>' : ''}
+                                ${aScore > 70 ? '<li><i class="fas fa-check text-emerald-500 mr-2"></i> Typed target sentences accurately.</li>' : ''}
+                            </ul>
+                            
+                            <h3 class="font-bold text-slate-800 mb-3 border-b pb-2 mt-4"><i class="fas fa-bullseye text-rose-500 mr-2"></i>Keep Practicing</h3>
+                            <p class="text-slate-600 mb-2">
+                                ${gScore <= 70 ? 'Remember: Always add <b>-ing</b> to the verb after like, love, enjoy, and hate.' : 'Try to ask more questions to keep online conversations going.'}
+                            </p>
+                        </div>
+
+                        <!-- Reflection Area -->
+                        <div class="bg-indigo-50 rounded-xl border border-indigo-100 p-5 mb-6 no-print">
+                            <h3 class="font-bold text-indigo-900 mb-3 text-sm uppercase tracking-wide">Quick Reflection</h3>
+                            <p class="text-xs text-indigo-700 mb-3">Type your answers to review.</p>
+                            <input type="text" placeholder="One activity I love doing is..." class="w-full text-sm p-2 rounded border border-indigo-200 mb-2 focus:outline-none shadow-sm">
+                            <input type="text" placeholder="One activity I hate doing is..." class="w-full text-sm p-2 rounded border border-indigo-200 focus:outline-none shadow-sm">
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex flex-col gap-3 no-print mb-8">
+                            <button onclick="window.print()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-4 rounded-xl transition-colors shadow-md flex items-center justify-center gap-2">
+                                <i class="fas fa-file-pdf"></i> Download / Print Report
+                            </button>
+                            <button onclick="app.renderSurvey()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-colors shadow-md flex items-center justify-center gap-2">
+                                <i class="fas fa-users"></i> Next: Class Survey
+                            </button>
+                        </div>
+                        
+                        <!-- Print-only signature line -->
+                        <div class="print-only mt-16 pt-8 border-t border-slate-300">
+                            <p class="text-slate-500 mb-8">Lesson: Likes and Dislikes in Free Time (A2)</p>
+                            <div class="flex justify-between">
+                                <div class="w-1/2 border-t border-slate-800 pt-2"><span class="text-sm font-bold">Teacher Signature</span></div>
+                                <div class="w-1/3 border-t border-slate-800 pt-2"><span class="text-sm font-bold">Date</span></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+
+            // ---------------- CLASS SURVEY (Bridge Activity) ----------------
+            renderSurvey() {
+                DOM.header.classList.add('hidden');
+                
+                DOM.content.innerHTML = `
+                    <div class="screen-enter p-4 flex flex-col h-full bg-slate-50">
+                        <div class="mb-4">
+                            <button onclick="app.renderReport()" class="text-indigo-600 text-sm font-bold mb-2"><i class="fas fa-arrow-left"></i> Back to Report</button>
+                            <h2 class="text-2xl font-black text-slate-800 uppercase tracking-tight">Class Survey</h2>
+                            <p class="text-sm text-slate-600">Message classmates using target questions.</p>
+                        </div>
+                        
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 text-sm">
+                            <p class="font-bold mb-2 text-indigo-700 border-b pb-1">Ask these questions:</p>
+                            <ul class="list-disc pl-5 text-slate-700 space-y-1 italic">
+                                <li>What do you love doing?</li>
+                                <li>What do you enjoy doing?</li>
+                                <li>What activity do you hate doing?</li>
+                            </ul>
+                        </div>
+
+                        <div class="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col mb-4">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse text-sm">
+                                    <thead>
+                                        <tr class="bg-slate-100 text-slate-600 border-b">
+                                            <th class="p-2 font-semibold">Name</th>
+                                            <th class="p-2 font-semibold text-center">❤️ Loves</th>
+                                            <th class="p-2 font-semibold text-center">😡 Hates</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="survey-body">
+                                        <!-- Rows generated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="p-2 bg-slate-50 border-t flex justify-center">
+                                <button onclick="app.addSurveyRow()" class="text-indigo-600 font-semibold text-sm py-1 px-4 hover:bg-indigo-50 rounded-full transition-colors"><i class="fas fa-plus"></i> Add Classmate</button>
+                            </div>
+                        </div>
+
+                        <div class="bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
+                            <p class="text-xs font-bold text-indigo-800 uppercase mb-2">Summary Frame</p>
+                            <p class="text-sm text-slate-700 italic">"Most students like <input type="text" class="w-20 border-b border-indigo-300 bg-transparent outline-none text-center font-bold text-indigo-900">. <input type="number" class="w-8 border-b border-indigo-300 bg-transparent outline-none text-center font-bold text-indigo-900"> students hate <input type="text" class="w-20 border-b border-indigo-300 bg-transparent outline-none text-center font-bold text-indigo-900">."</p>
+                        </div>
+                    </div>
+                `;
+                
+                // Initialize with 3 empty rows if data is empty
+                if(state.surveyData.length === 0) {
+                    state.surveyData = [{}, {}, {}];
+                }
+                this.renderSurveyTable();
+            },
+
+            renderSurveyTable() {
+                const tbody = document.getElementById('survey-body');
+                if(!tbody) return;
+                
+                tbody.innerHTML = state.surveyData.map((row, index) => `
+                    <tr class="border-b last:border-b-0 hover:bg-slate-50 transition-colors">
+                        <td class="p-2"><input type="text" placeholder="Name" class="w-full bg-transparent outline-none text-sm font-medium" value="${row.name || ''}" onchange="state.surveyData[${index}].name = this.value"></td>
+                        <td class="p-2 border-l"><input type="text" placeholder="..." class="w-full bg-transparent outline-none text-sm text-center" value="${row.loves || ''}" onchange="state.surveyData[${index}].loves = this.value"></td>
+                        <td class="p-2 border-l"><input type="text" placeholder="..." class="w-full bg-transparent outline-none text-sm text-center" value="${row.hates || ''}" onchange="state.surveyData[${index}].hates = this.value"></td>
+                    </tr>
+                `).join('');
+            }
+        };
+
+        /* --- MAIN APP CONTROLLER --- */
+        const app = {
+            init() {
+                // Check if user returned
+                const saved = localStorage.getItem('lesson2_chat_state');
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        if(parsed.currentMission >= 1 && parsed.currentMission <= 4) {
+                            // Suggest resume
+                            DOM.content.innerHTML = `
+                                <div class="flex flex-col items-center justify-center h-full p-6 text-center screen-enter">
+                                    <div class="bg-indigo-100 text-indigo-600 p-4 rounded-full mb-4 text-3xl"><i class="fas fa-undo"></i></div>
+                                    <h2 class="text-xl font-bold mb-2 text-slate-800">Welcome Back!</h2>
+                                    <p class="text-slate-600 mb-8 font-medium">We found your previous progress.</p>
+                                    <button onclick="app.resume()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl mb-3 shadow-md transition-transform active:scale-95">Resume Mission ${parsed.currentMission}</button>
+                                    <button onclick="app.reset()" class="w-full bg-slate-200 text-slate-700 font-bold py-4 rounded-xl transition-colors hover:bg-slate-300">Start Over</button>
+                                </div>
+                            `;
+                            return;
+                        }
+                    } catch(e) {}
+                }
+                Screens.renderWelcome();
+            },
+
+            startChallenge() {
+                const nameInput = document.getElementById('student-name-input');
+                const name = nameInput.value.trim();
+                if (!name) {
+                    UI.showToast("Please enter your name to begin.", "error");
+                    nameInput.focus();
+                    return;
+                }
+                state.studentName = name;
+                this.saveProgress();
+                Screens.renderGrammarDetective();
+            },
+
+            addSurveyRow() {
+                state.surveyData.push({});
+                Screens.renderSurveyTable();
+            },
+
+            // Routing
+            renderMission1() { Screens.renderMission1(); this.saveProgress(); },
+            renderMission2() { Screens.renderMission2(); this.saveProgress(); },
+            renderMission3() { Screens.renderMission3(); this.saveProgress(); },
+            renderMission4() { Screens.renderMission4(); this.saveProgress(); },
+            renderReport() { Screens.renderReport(); this.saveProgress(); },
+            renderSurvey() { Screens.renderSurvey(); this.saveProgress(); },
+
+            // Storage
+            saveProgress() {
+                try { localStorage.setItem('lesson2_chat_state', JSON.stringify(state)); } catch(e) {}
+            },
+            
+            resume() {
+                try {
+                    const saved = JSON.parse(localStorage.getItem('lesson2_chat_state'));
+                    Object.assign(state, saved);
+                    if(state.currentMission === 1) Screens.renderMission1();
+                    else if(state.currentMission === 2) Screens.renderMission2();
+                    else if(state.currentMission === 3) Screens.renderMission3();
+                    else if(state.currentMission === 4) Screens.renderMission4();
+                    else Screens.renderReport();
+                } catch(e) { this.reset(); }
+            },
+
+            reset() {
+                localStorage.removeItem('lesson2_chat_state');
+                location.reload();
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            app.init();
+        });
+
+    </script>
+</body>
+</html>
